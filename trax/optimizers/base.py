@@ -16,6 +16,7 @@
 # Lint as: python3
 """Trax base optimizer class."""
 
+from trax import math
 from trax.layers import base as layers
 from trax.math import numpy as np
 
@@ -121,9 +122,12 @@ class Optimizer(object):
   def tree_update(self, step, grad_tree, weight_tree, slots, opt_params):
     """Assembles node-local weight and slot updates for the full layer tree."""
     grads_flat = _tree_flatten(grad_tree)
+    if math.backend_name() == 'jax':
+      norm = np.sqrt(sum(np.vdot(x, x) for x in grads_flat))
+    else:  # TODO(lukaszkaiser): add vdot to TF-numpy
+      norm = np.sqrt(sum(np.sum(x*x) for x in grads_flat))
     if self._clip_grad_norm is not None:
       max_norm = self._clip_grad_norm
-      norm = np.sqrt(sum(np.vdot(x, x) for x in grads_flat))
       grads_flat = [np.where(norm < max_norm, g, g * (max_norm / norm))
                     for g in grads_flat]
     weights_flat = _tree_flatten(weight_tree)
@@ -133,7 +137,7 @@ class Optimizer(object):
     ]
     new_weights_flat, self.slots = zip(*updated_pairs)
     new_weights, _ = _tree_unflatten(new_weights_flat, weight_tree)
-    return new_weights, self.slots
+    return new_weights, self.slots, {'gradients_l2': norm}
 
 
 class SGD(Optimizer):
